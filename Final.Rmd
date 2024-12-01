@@ -1,0 +1,349 @@
+---
+title: "ADA Final"
+output: html_document
+date: "2024-11-13"
+---
+
+```{r setup, include=FALSE}
+library(haven)
+library(dplyr)
+```
+
+```{r}
+# Read data from NHANES 2017-2020
+
+# Read the demographic data
+demo <- read_xpt(
+  "https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DEMO.XPT",
+  col_select = NULL,
+  skip = 0,
+  n_max = Inf,
+  .name_repair = "unique")
+
+cat("Total participants in NHANES 2017-2020:", nrow(demo),'\n')
+
+# Limit the age range between 5-7
+demo2 <- demo %>% 
+  filter(5 <= RIDAGEYR & RIDAGEYR <= 7)
+
+cat("Participants between age 5-7 in NHANES 2017-2020:", nrow(demo2),'\n')
+
+# Read the dentition data
+dent <- read_xpt(
+  "https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXDEN.XPT",
+  col_select = NULL,
+  skip = 0,
+  n_max = Inf,
+  .name_repair = "unique")
+
+# Read the body measurement data
+bmx <- read_xpt(
+  "https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_BMX.XPT",
+  col_select = NULL,
+  skip = 0,
+  n_max = Inf,
+  .name_repair = "unique")
+
+# Use inner_join to merge the data while making sure every observation has demographic, dentition, and body measurement data available
+df_bmx <- demo2 %>% 
+  inner_join(bmx, by='SEQN')
+df_bmx <- df_bmx %>% filter(!is.na(BMDBMIC))
+
+cat("Participants between age 5-7 with body measurement data available in NHANES 2017-2020:", nrow(df_bmx),'\n')
+
+df <- df_bmx %>% 
+    inner_join(dent, by='SEQN')
+df <- df %>% filter(!is.na(OHX03TC) & !is.na(OHX14TC) & !is.na(OHX19TC) & !is.na(OHX30TC))
+
+cat("Participants between age 5-7 with body measurement and dental data available in NHANES 2017-2020:", nrow(df),'\n')
+
+```
+
+```{r}
+# Create a Figure 1 to show the exclusion process
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(rsvg)
+figure1 <- grViz(diagram = "digraph flowchart{ 
+      node [fontname = Helvetica, shape = rectangle, fontsize=10] 
+      
+      node1 [label = '@@1'] 
+      node2 [label = '@@2'] 
+      node3 [label = '@@3'] 
+      node4 [label = '@@4'] 
+      node5 [label = '@@5']
+      
+      node1 -> node2 -> node3 -> node4 -> node5
+}
+      [1]: 'Participants in NHANES 2017-2020\\nn = 15,560'
+      [2]: 'Excluding 14,633 individuals outside the age range of 5-7\\nn = 927'
+      [3]: 'Excluding 105 individuals with missing data on body measurement\\nn = 822'
+      [4]: 'Excluding 8 individuals with missing data on permanent first molars count\\nn = 814\\n(For univariate analysis)'
+      [5]: 'Excluding 97 individuals with missing data on household income after sensitivity analysis\\nn=717\\n(For multivariate analysis)'
+      ")
+
+figure1 %>%
+  export_svg() %>% 
+  charToRaw() %>% 
+  rsvg_pdf("/Users/huangyuku/Documents/Docs/WashU_2024Fall/ADA/Final Project/figure1.pdf")
+```
+
+
+```{r}
+# Recode variables
+df <- df %>% 
+  mutate(gender = ifelse(RIAGENDR == 1,'Male','Female')) %>% 
+  mutate(gender = factor(gender, levels = c('Male','Female'))) %>% 
+  mutate(obesity = ifelse(BMDBMIC == 4, 'Yes','No')) %>% 
+  mutate(obesity = factor(obesity, levels = c('No','Yes'))) %>% 
+  mutate(race = case_match(RIDRETH3,
+                           c(1,2) ~ 'Hispanic',
+                           3 ~ 'White',
+                           4 ~ 'Black',
+                           6 ~ 'Asian',
+                           7 ~ 'Other/Multi-racial')) %>% 
+  mutate(race = factor(race, levels=c('White','Black','Hispanic','Asian','Other/Multi-racial'))) %>% 
+  rename(income_ratio = INDFMPIR) %>% 
+  rename(age = RIDAGEYR) %>% 
+  mutate(first_molar_presence = ifelse(OHX03TC == 2 |
+OHX14TC == 2 | OHX19TC == 2 | OHX30TC == 2 , 1,0)) %>%
+  mutate(first_molar_yn = ifelse(first_molar_presence==1,'Yes','No')) %>% 
+  mutate(first_molar_count = rowSums(across(c(OHX03TC, OHX14TC, OHX19TC, OHX30TC), ~ . == 2)))
+    
+# Cross check new variable coding
+table(df$gender, df$RIAGENDR)
+table(df$obesity, df$BMDBMIC)
+table(df$race, df$RIDRETH3)
+table(df$OHX03TC,df$OHX14TC,df$OHX19TC,df$OHX30TC,df$first_molar_presence)
+table(df$OHX03TC,df$OHX14TC,df$OHX19TC,df$OHX30TC,df$first_molar_count)
+table(df$first_molar_presence,df$first_molar_yn)
+```
+
+
+
+```{r}
+# Create a table 1 describing the characteristics of the participants
+library(table1)
+library(flextable)
+library(systemfonts)
+
+pacman::p_load(labelled)
+var_label(df$age) <- 'Age'
+var_label(df$gender) <- 'Gender'
+var_label(df$race) <- 'Race/Ethnicity'
+var_label(df$obesity) <- 'Childhood Obesity'
+var_label(df$income_ratio) <- 'Income ratio to poverty line'
+var_label(df$first_molar_presence)<- 'First Molar Presence'
+tab<-table1(~age + gender + race + obesity + income_ratio |first_molar_yn,overall = 'Total',caption = 'Permanent First Molar Presence', df)
+tab <- t1flex(tab) 
+save_as_docx(tab, path = "/Users/huangyuku/Documents/Docs/WashU_2024Fall/ADA/Final Project/table1.docx")
+tab
+```
+
+```{r}
+# Visualize the data
+library(ggplot2)
+
+# Outcome by age
+ggplot(data = df) +
+  geom_bar(position ="dodge", aes(x = age, fill = first_molar_yn))
+
+# Outcome by gender
+ggplot(data = df) +
+  geom_bar(position ="dodge", aes(x = gender, fill = first_molar_yn))
+
+# Outcome by race
+ggplot(data = df) +
+  geom_bar(position ="dodge", aes(x = race, fill = first_molar_yn))
+
+# Outcome by childhood obesity
+ggplot(data = df) +
+  geom_bar(position ="dodge", aes(x = obesity, fill = first_molar_yn))
+
+# Outcome by income ratio
+ggplot(data = df, aes(x = first_molar_yn, y = income_ratio)) +
+  geom_boxplot()+
+  theme_bw()
+
+
+```
+
+```{r}
+# Impute missing data in income ratio
+cat("observations with missing data in income:",nrow(df[is.na(df$income_ratio),]))
+
+library(VIM)
+library(mice)
+library(lattice)
+
+marginplot(df %>% select(race, income_ratio), col=c("blue","red","orange"), cex=1, cex.lab=1, cex.numbers=0.7, pch=20) 
+pbox(df[,c('income_ratio','race')],pos = 2)
+
+imp <- mice(df, m = 10, maxit = 5, method='pmm', seed = 42)
+
+
+```
+
+
+```{r}
+# Create a 2*2 contingency table and use Chi-square test to assess the crude relationship
+t <- table(obesity=df$obesity,molar=df$first_molar_presence)
+t
+chisq.test(t)
+```
+
+```{r}
+# Unadjusted analysis by univariate logistic regression
+library(odds.n.ends)
+model_0 <- glm(first_molar_presence ~ obesity, data = df, family = 'binomial')
+summary(model_0)
+model_0
+odds.n.ends(model_0)
+install.packages('sjPlot')
+library(sjPlot)
+tab_model(model_0)
+```
+
+```{r}
+# Sensitivity analysis to compare the model with imputation, complete cases analysis, and the model without income as a predictor
+
+model_1 <- with(longimp,glm(first_molar_presence ~ age + gender + race + obesity + income_ratio, data = df, family = 'binomial'))
+fit <- summary(pool(model_1))
+fit
+
+model_2 <- glm(first_molar_presence~age+gender+race+obesity+income_ratio, data = df, family = 'binomial', na.action = na.omit)
+summary(model_2)
+odds.n.ends(model_2)
+tab_model(model_2)
+```
+
+
+```{r}
+# Use Box-Tidwell Test to check the linearity assumption for continuous variable 
+df_ex <- df %>% filter(!is.na(income_ratio))
+df_ex <- df_ex %>% 
+  mutate(age_times_logage = age * log(age))
+
+box_tidwell_model_age = glm(first_molar_presence ~ age + age_times_logage, df_ex, family='binomial')
+
+df_ex <- df_ex %>% 
+  mutate(income_times_logincome = income_ratio * log(income_ratio))
+
+
+box_tidwell_model_income = glm(first_molar_presence ~ income_ratio + income_times_logincome, df_ex, family='binomial')
+
+summary(box_tidwell_model_income)
+
+# The p-value of interaction terms are all insignificant, thus the linear assumption is met.
+```
+
+```{r}
+# Test multicollinearity using VIF
+jtools::summ(model_2, vifs = TRUE)
+```
+```{r}
+library(broom)
+# Plot Cook's Distance of our data point
+plot(model_2, which = 4, id.n = 5, col="red") +
+abline(h=1, col="blue", lty=2)  # Add a threshold line
+
+model.data <- augment(model_2) %>%  
+  mutate(index = 1:n()) 
+model.data
+
+# Check the outlier with Cook'D
+cutoff <- 1
+df_2 <- model.data %>% 
+  filter(.cooksd > cutoff)
+cat("Data points with Cook's D larger than 1:",nrow(df_2))
+
+cutoff2 <- 4/nrow(df)
+df_3 <- model.data %>% 
+  filter(.cooksd > cutoff)
+cat("Data points with Cook's D larger than 4/n:", nrow(df_3))
+
+```
+```{r}
+library(blorr)
+blr_test_hosmer_lemeshow(model_2)
+```
+
+```{r}
+# Examine the effect modification
+
+# Gender vs. Obesity
+model_gender <- glm(first_molar_presence ~ gender + obesity + gender*obesity, data = df_ex)
+summary(model_gender)
+
+# Age vs. Obesity
+model_age <- glm(first_molar_presence ~ age + obesity + age*obesity, data = df_ex)
+summary(model_age)
+
+# Race vs. Obesity
+model_race <- glm(first_molar_presence ~ race + obesity + race*obesity, data = df_ex)
+summary(model_race)
+
+# Income vs. Obesity
+model_income <- glm(first_molar_presence ~ income_ratio + obesity + income_ratio*obesity, data = df_ex)
+summary(model_income)
+```
+
+
+```{r}
+# Take NHANES sampling design into account
+library(survey)
+
+df_raw <- demo %>% 
+  left_join(bmx,by='SEQN') %>% 
+  left_join(dent,by='SEQN')
+
+df_raw <- df_raw %>% 
+  mutate(gender = ifelse(RIAGENDR == 1,'Male','Female')) %>% 
+  mutate(gender = factor(gender, levels = c('Male','Female'))) %>% 
+  mutate(obesity = ifelse(BMDBMIC == 4, 'Yes','No')) %>% 
+  mutate(obesity = factor(obesity, levels = c('No','Yes'))) %>% 
+  mutate(race = case_match(RIDRETH3,
+                           c(1,2) ~ 'Hispanic',
+                           3 ~ 'White',
+                           4 ~ 'Black',
+                           6 ~ 'Asian',
+                           7 ~ 'Other/Multi-racial')) %>% 
+  mutate(race = factor(race, levels=c('White','Black','Hispanic','Asian','Other/Multi-racial'))) %>% 
+  rename(income_ratio = INDFMPIR) %>% 
+  rename(age = RIDAGEYR) %>% 
+  mutate(first_molar_presence = ifelse(OHX03TC == 2 |
+OHX14TC == 2 | OHX19TC == 2 | OHX30TC == 2 , 1,0)) %>% 
+  mutate(first_molar_count = rowSums(across(c(OHX03TC, OHX14TC, OHX19TC, OHX30TC), ~ . == 2))) %>% 
+  mutate(inAnalysis = age >= 5 & age <= 7 & !is.na(BMDBMIC) & !is.na(income_ratio) & !is.na(OHX03TC) & !is.na(OHX14TC) & !is.na(OHX19TC) & !is.na(OHX30TC))
+
+
+overall_design <- svydesign(data=df_raw,ids = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~WTMECPRP, nest = TRUE)
+design <- subset(overall_design,inAnalysis)
+model_weighted <- svyglm(first_molar_presence ~ age + gender + race + obesity + income_ratio, family = 'binomial',design=design)
+
+summary(model_weighted)
+tab_model(model_weighted)
+exp(model_weighted$coefficients)
+```
+
+```{r}
+# Use Poisson Regression model to model the count of permanent molars present
+model_poisson <- glm(first_molar_count~age+gender+race+obesity, data = df_ex, family = 'poisson')
+summary(model_poisson)
+tab_model(model_poisson)
+# Use negative binary regression model and lrtest to test if the assumption of Poisson Regression is met
+library(MASS)
+model_nb <- glm.nb(first_molar_count~age+gender+race+obesity, data = df)
+summary(model_nb)
+
+library(lmtest)
+lrtest(model_poisson,model_nb)
+
+tidy(model_poisson, exponentiate = TRUE, conf.int = TRUE)
+
+model_weighted_2 <- svyglm(first_molar_count ~ age + gender + race + obesity + income_ratio, family = 'poisson',design=design)
+summary(model_weighted_2)
+tab_model(model_weighted_2)
+```
+
+
