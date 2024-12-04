@@ -5,9 +5,35 @@ date: "2024-11-13"
 ---
 
 ```{r setup, include=FALSE}
+# Load all the necessary libraries
+pacman::p_load(haven, dplyr, sjPlot, DiagrammeR, DiagrammeRsvg, rsvg, table1, flextable, 
+               systemfonts, VIM, mice, lattice, odds.n.ends, ggplot2, broom, blorr, 
+               lmtest, MASS, survey, jtools)
+```
+
+```{r}
 library(haven)
 library(dplyr)
+library(sjPlot)
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(rsvg)
+library(table1)
+library(flextable)
+library(systemfonts)
+library(VIM)
+library(mice)
+library(lattice)
+library(odds.n.ends)
+library(ggplot2)
+library(broom)
+library(blorr)
+library(lmtest)
+library(MASS)
+library(survey)
+library(jtools)
 ```
+
 
 ```{r}
 # Read data from NHANES 2017-2020
@@ -61,9 +87,7 @@ cat("Participants between age 5-7 with body measurement and dental data availabl
 
 ```{r}
 # Create a Figure 1 to show the exclusion process
-library(DiagrammeR)
-library(DiagrammeRsvg)
-library(rsvg)
+
 figure1 <- grViz(diagram = "digraph flowchart{ 
       node [fontname = Helvetica, shape = rectangle, fontsize=10] 
       
@@ -123,9 +147,6 @@ table(df$first_molar_presence,df$first_molar_yn)
 
 ```{r}
 # Create a table 1 describing the characteristics of the participants
-library(table1)
-library(flextable)
-library(systemfonts)
 
 pacman::p_load(labelled)
 var_label(df$age) <- 'Age'
@@ -142,7 +163,6 @@ tab
 
 ```{r}
 # Visualize the data
-library(ggplot2)
 
 # Outcome by age
 ggplot(data = df) +
@@ -171,12 +191,8 @@ ggplot(data = df, aes(x = first_molar_yn, y = income_ratio)) +
 ```{r}
 # Impute missing data in income ratio
 cat("observations with missing data in income:",nrow(df[is.na(df$income_ratio),]))
-
-library(VIM)
-library(mice)
-library(lattice)
-
-marginplot(df %>% select(race, income_ratio), col=c("blue","red","orange"), cex=1, cex.lab=1, cex.numbers=0.7, pch=20) 
+df_race_income <- df %>% select(race, income_ratio)
+marginplot(df %>% dplyr::select(race, income_ratio), col=c("blue","red","orange"), cex=1, cex.lab=1, cex.numbers=0.7, pch=20) 
 pbox(df[,c('income_ratio','race')],pos = 2)
 
 imp <- mice(df, m = 10, maxit = 5, method='pmm', seed = 42)
@@ -194,21 +210,21 @@ chisq.test(t)
 
 ```{r}
 # Unadjusted analysis by univariate logistic regression
-library(odds.n.ends)
+
 model_0 <- glm(first_molar_presence ~ obesity, data = df, family = 'binomial')
 summary(model_0)
 model_0
 odds.n.ends(model_0)
-install.packages('sjPlot')
-library(sjPlot)
 tab_model(model_0)
 ```
 
 ```{r}
 # Sensitivity analysis to compare the model with imputation, complete cases analysis, and the model without income as a predictor
+model_1 <- with(imp,glm(first_molar_presence ~ age + gender + race + obesity + income_ratio, family = 'binomial'))
 
-model_1 <- with(longimp,glm(first_molar_presence ~ age + gender + race + obesity + income_ratio, data = df, family = 'binomial'))
-fit <- summary(pool(model_1))
+class(model_1)
+pool <- pool(model_1)
+fit <- summary(pool)
 fit
 
 model_2 <- glm(first_molar_presence~age+gender+race+obesity+income_ratio, data = df, family = 'binomial', na.action = na.omit)
@@ -239,10 +255,10 @@ summary(box_tidwell_model_income)
 
 ```{r}
 # Test multicollinearity using VIF
-jtools::summ(model_2, vifs = TRUE)
+summ(model_2, vifs = TRUE)
 ```
 ```{r}
-library(broom)
+
 # Plot Cook's Distance of our data point
 plot(model_2, which = 4, id.n = 5, col="red") +
 abline(h=1, col="blue", lty=2)  # Add a threshold line
@@ -264,7 +280,7 @@ cat("Data points with Cook's D larger than 4/n:", nrow(df_3))
 
 ```
 ```{r}
-library(blorr)
+
 blr_test_hosmer_lemeshow(model_2)
 ```
 
@@ -291,7 +307,7 @@ summary(model_income)
 
 ```{r}
 # Take NHANES sampling design into account
-library(survey)
+
 
 df_raw <- demo %>% 
   left_join(bmx,by='SEQN') %>% 
@@ -314,7 +330,7 @@ df_raw <- df_raw %>%
   mutate(first_molar_presence = ifelse(OHX03TC == 2 |
 OHX14TC == 2 | OHX19TC == 2 | OHX30TC == 2 , 1,0)) %>% 
   mutate(first_molar_count = rowSums(across(c(OHX03TC, OHX14TC, OHX19TC, OHX30TC), ~ . == 2))) %>% 
-  mutate(inAnalysis = age >= 5 & age <= 7 & !is.na(BMDBMIC) & !is.na(income_ratio) & !is.na(OHX03TC) & !is.na(OHX14TC) & !is.na(OHX19TC) & !is.na(OHX30TC))
+  mutate(inAnalysis = (age >= 5 & age <= 7 & !is.na(BMDBMIC) & !is.na(income_ratio) & !is.na(OHX03TC) & !is.na(OHX14TC) & !is.na(OHX19TC) & !is.na(OHX30TC)))
 
 
 overall_design <- svydesign(data=df_raw,ids = ~SDMVPSU, strata = ~SDMVSTRA, weights = ~WTMECPRP, nest = TRUE)
@@ -328,16 +344,20 @@ exp(model_weighted$coefficients)
 
 ```{r}
 # Use Poisson Regression model to model the count of permanent molars present
-model_poisson <- glm(first_molar_count~age+gender+race+obesity, data = df_ex, family = 'poisson')
-summary(model_poisson)
-tab_model(model_poisson)
+model_poisson_0 <- glm(first_molar_count ~ obesity, data = df, family = 'poisson')
+summary(model_poisson_0)
+tab_model(model_poisson_0)
+
+model_poisson_1 <- glm(first_molar_count~age+gender+race+obesity, data = df_ex, family = 'poisson')
+summary(model_poisson_1)
+tab_model(model_poisson_1)
+
 # Use negative binary regression model and lrtest to test if the assumption of Poisson Regression is met
-library(MASS)
-model_nb <- glm.nb(first_molar_count~age+gender+race+obesity, data = df)
+model_nb <- glm.nb(first_molar_count~age+gender+race+obesity, data = df_ex)
 summary(model_nb)
 
-library(lmtest)
-lrtest(model_poisson,model_nb)
+
+lrtest(model_poisson_1,model_nb)
 
 tidy(model_poisson, exponentiate = TRUE, conf.int = TRUE)
 
