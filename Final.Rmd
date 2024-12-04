@@ -7,32 +7,10 @@ date: "2024-11-13"
 ```{r setup, include=FALSE}
 # Load all the necessary libraries
 pacman::p_load(haven, dplyr, sjPlot, DiagrammeR, DiagrammeRsvg, rsvg, table1, flextable, 
-               systemfonts, VIM, mice, lattice, odds.n.ends, ggplot2, broom, blorr, 
+               systemfonts, odds.n.ends, ggplot2, broom, blorr, 
                lmtest, MASS, survey, jtools)
 ```
 
-```{r}
-library(haven)
-library(dplyr)
-library(sjPlot)
-library(DiagrammeR)
-library(DiagrammeRsvg)
-library(rsvg)
-library(table1)
-library(flextable)
-library(systemfonts)
-library(VIM)
-library(mice)
-library(lattice)
-library(odds.n.ends)
-library(ggplot2)
-library(broom)
-library(blorr)
-library(lmtest)
-library(MASS)
-library(survey)
-library(jtools)
-```
 
 
 ```{r}
@@ -188,17 +166,7 @@ ggplot(data = df, aes(x = first_molar_yn, y = income_ratio)) +
 
 ```
 
-```{r}
-# Impute missing data in income ratio
-cat("observations with missing data in income:",nrow(df[is.na(df$income_ratio),]))
-df_race_income <- df %>% select(race, income_ratio)
-marginplot(df %>% dplyr::select(race, income_ratio), col=c("blue","red","orange"), cex=1, cex.lab=1, cex.numbers=0.7, pch=20) 
-pbox(df[,c('income_ratio','race')],pos = 2)
 
-imp <- mice(df, m = 10, maxit = 5, method='pmm', seed = 42)
-
-
-```
 
 
 ```{r}
@@ -219,18 +187,10 @@ tab_model(model_0)
 ```
 
 ```{r}
-# Sensitivity analysis to compare the model with imputation, complete cases analysis, and the model without income as a predictor
-model_1 <- with(imp,glm(first_molar_presence ~ age + gender + race + obesity + income_ratio, family = 'binomial'))
-
-class(model_1)
-pool <- pool(model_1)
-fit <- summary(pool)
-fit
-
-model_2 <- glm(first_molar_presence~age+gender+race+obesity+income_ratio, data = df, family = 'binomial', na.action = na.omit)
-summary(model_2)
-odds.n.ends(model_2)
-tab_model(model_2)
+model_1 <- glm(first_molar_presence~age+gender+race+obesity+income_ratio, data = df, family = 'binomial', na.action = na.omit)
+summary(model_1)
+odds.n.ends(model_1)
+tab_model(model_1)
 ```
 
 
@@ -255,15 +215,16 @@ summary(box_tidwell_model_income)
 
 ```{r}
 # Test multicollinearity using VIF
-summ(model_2, vifs = TRUE)
+summ(model_1, vifs = TRUE)
 ```
+
 ```{r}
 
 # Plot Cook's Distance of our data point
-plot(model_2, which = 4, id.n = 5, col="red") +
+plot(model_1, which = 4, id.n = 5, col="red") +
 abline(h=1, col="blue", lty=2)  # Add a threshold line
 
-model.data <- augment(model_2) %>%  
+model.data <- augment(model_1) %>%  
   mutate(index = 1:n()) 
 model.data
 
@@ -280,8 +241,7 @@ cat("Data points with Cook's D larger than 4/n:", nrow(df_3))
 
 ```
 ```{r}
-
-blr_test_hosmer_lemeshow(model_2)
+blr_test_hosmer_lemeshow(model_1)
 ```
 
 ```{r}
@@ -359,7 +319,7 @@ summary(model_nb)
 
 lrtest(model_poisson_1,model_nb)
 
-tidy(model_poisson, exponentiate = TRUE, conf.int = TRUE)
+tidy(model_poisson_1, exponentiate = TRUE, conf.int = TRUE)
 
 model_weighted_2 <- svyglm(first_molar_count ~ age + gender + race + obesity + income_ratio, family = 'poisson',design=design)
 summary(model_weighted_2)
