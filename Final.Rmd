@@ -18,7 +18,7 @@ pacman::p_load(haven, dplyr, sjPlot, DiagrammeR, DiagrammeRsvg, rsvg, table1, fl
 
 # Read the demographic data
 demo <- read_xpt(
-  "https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_DEMO.XPT",
+  "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/P_DEMO.xpt",
   col_select = NULL,
   skip = 0,
   n_max = Inf,
@@ -34,7 +34,7 @@ cat("Participants between age 5-7 in NHANES 2017-2020:", nrow(demo2),'\n')
 
 # Read the dentition data
 dent <- read_xpt(
-  "https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_OHXDEN.XPT",
+  "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/P_OHXDEN.xpt",
   col_select = NULL,
   skip = 0,
   n_max = Inf,
@@ -42,7 +42,7 @@ dent <- read_xpt(
 
 # Read the body measurement data
 bmx <- read_xpt(
-  "https://wwwn.cdc.gov/Nchs/Nhanes/2017-2018/P_BMX.XPT",
+  "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/P_BMX.xpt",
   col_select = NULL,
   skip = 0,
   n_max = Inf,
@@ -326,4 +326,37 @@ summary(model_weighted_2)
 tab_model(model_weighted_2)
 ```
 
+```{r}
+# Take a look at the weighted table
+library(gtsummary)
+svy_result <- tbl_svysummary(design, include = c(gender, race, age, income_ratio))
+svy_result
+```
+```{r}
+# Stratify the original model by race
+model_white <- glm(first_molar_presence~age+gender+obesity+income_ratio, data = df %>% filter(df$race == 'White'), family = 'binomial', na.action = na.omit)
+summary(model_white)
+odds.n.ends(model_white)
+tab_model(model_white)
+
+model_black <- glm(first_molar_presence~age+gender+obesity+income_ratio, data = df %>% filter(df$race == 'Black'), family = 'binomial', na.action = na.omit)
+summary(model_black)
+odds.n.ends(model_black)
+tab_model(model_black)
+
+model_hispanic <- glm(first_molar_presence~age+gender+obesity+income_ratio, data = df %>% filter(df$race == 'Hispanic'), family = 'binomial', na.action = na.omit)
+summary(model_hispanic)
+odds.n.ends(model_hispanic)
+tab_model(model_hispanic)
+
+model_asian <- glm(first_molar_presence~age+gender+obesity+income_ratio, data = df %>% filter(df$race == 'Asian'), family = 'binomial', na.action = na.omit)
+summary(model_asian)
+odds.n.ends(model_asian)
+tab_model(model_asian)
+
+model_other <- glm(first_molar_presence~age+gender+obesity+income_ratio, data = df %>% filter(df$race == 'Other/Multi-racial'), family = 'binomial', na.action = na.omit)
+summary(model_other)
+odds.n.ends(model_other)
+tab_model(model_other)
+```
 
